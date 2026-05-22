@@ -1,0 +1,44 @@
+rules_version = '2';
+
+// Nexus Chat — Firestore security rules.
+// Chats are owner-scoped via their `user_id`; messages live under their chat
+// and inherit ownership from the parent. Settings are keyed by uid.
+// Paste into: Firebase Console -> Firestore Database -> Rules -> Publish.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function ownsExisting() {
+      return isSignedIn() && resource.data.user_id == request.auth.uid;
+    }
+
+    function ownsIncoming() {
+      return isSignedIn() && request.resource.data.user_id == request.auth.uid;
+    }
+
+    // chats/{chatId}
+    match /chats/{chatId} {
+      allow read, delete: if ownsExisting();
+      allow create: if ownsIncoming();
+      allow update: if ownsExisting() && ownsIncoming();
+
+      // chats/{chatId}/messages/{messageId}
+      match /messages/{messageId} {
+        function chatOwner() {
+          return isSignedIn()
+            && get(/databases/$(database)/documents/chats/$(chatId)).data.user_id == request.auth.uid;
+        }
+        allow read, write: if chatOwner();
+      }
+    }
+
+    // user_settings/{userId} — doc id equals the owner's uid
+    match /user_settings/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+  }
+}
